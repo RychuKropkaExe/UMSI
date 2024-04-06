@@ -1,10 +1,10 @@
-struct NaiveBayessClassifier
+struct BayessClassifier
 
     histogramHam::Dict
     histogramSpam::Dict
 
-    hamWordCount::Int64
-    spamWordCount::Int64
+    hamMessageCount::Int64
+    spamMessageCount::Int64
 
     hamProb::Float64
     spamProb::Float64
@@ -13,7 +13,7 @@ end
 
 @enum Category SPAM HAM
 
-function createHistograms(spamHamPath::String)::NaiveBayessClassifier
+function createHistograms(spamHamPath::String)::BayessClassifier
 
     f = open(spamHamPath, "r")
 
@@ -36,6 +36,8 @@ function createHistograms(spamHamPath::String)::NaiveBayessClassifier
 
         message::Array = split(line, excludedChars)
 
+        alreadyUsed::Dict = Dict()
+
         if message[1] == "ham"
             
             hamMessageCount += 1
@@ -50,10 +52,13 @@ function createHistograms(spamHamPath::String)::NaiveBayessClassifier
 
                 hamWordCount += 1
 
-                if haskey(histogramHam, normWord)
+                if haskey(histogramHam, normWord) && !haskey(alreadyUsed, normWord)
                     histogramHam[normWord] += 1
-                else
+                    alreadyUsed[normWord] = 0
+                elseif !haskey(histogramHam, normWord)
                     histogramHam[normWord] = 1
+                    alreadyUsed[normWord] = 0
+                    #println("CLASSIFIED???")
                 end
 
             end
@@ -72,10 +77,12 @@ function createHistograms(spamHamPath::String)::NaiveBayessClassifier
 
                 normWord = lowercase(word)
 
-                if haskey(histogramSpam, normWord)
+                if haskey(histogramSpam, normWord) && !haskey(alreadyUsed, normWord)
                     histogramSpam[normWord] += 1
-                else
+                    alreadyUsed[normWord] = 0
+                elseif !haskey(histogramSpam, normWord)
                     histogramSpam[normWord] = 1
+                    alreadyUsed[normWord] = 0
                 end
 
             end
@@ -86,24 +93,24 @@ function createHistograms(spamHamPath::String)::NaiveBayessClassifier
 
     for (key, val) in histogramHam
 
-        histogramHam[key] = histogramHam[key] / messageCount
+        histogramHam[key] = histogramHam[key] / hamMessageCount
 
     end
 
     for (key, val) in histogramSpam
 
-        histogramSpam[key] = histogramSpam[key] / messageCount
+        histogramSpam[key] = histogramSpam[key] / spamMessageCount
 
     end
 
     hamMessageProb::Float64 = hamMessageCount / messageCount
     spamMessageProb::Float64 = spamMessageCount / messageCount
 
-    return NaiveBayessClassifier(histogramHam, histogramSpam, hamWordCount, spamWordCount, hamMessageProb, spamMessageProb)
+    return BayessClassifier(histogramHam, histogramSpam, hamMessageCount, spamMessageCount, hamMessageProb, spamMessageProb)
 
 end
 
-function classify(classifier::NaiveBayessClassifier, message::Vector{SubString{String}})::Category
+function classify(classifier::BayessClassifier, message::Vector{SubString{String}})::Category
 
     pCs::Float64 = classifier.spamProb
     pCh::Float64 = classifier.hamProb
@@ -111,36 +118,45 @@ function classify(classifier::NaiveBayessClassifier, message::Vector{SubString{S
     pXCs::Float64 = classifier.spamProb
     pXCh::Float64 = classifier.hamProb
 
-    for word in message
+    alreadyUsed::Dict = Dict()
 
-        if word != "" && haskey(classifier.histogramHam, word)
+    normMessage = [lowercase(i) for i in message if i != ""]
+
+    for word in normMessage
+
+        if haskey(classifier.histogramHam, word) && !haskey(alreadyUsed, word)
 
             pXCh = pXCh * classifier.histogramHam[word] 
 
-        else
+        elseif !haskey(alreadyUsed, word)
 
-            pXCh = pXCh * (1 / classifier.hamWordCount)
+            pXCh = pXCh * (1 / classifier.hamMessageCount)
 
         end
 
     end
 
-    for word in message
+    alreadyUsed = Dict()
 
-        if word != "" && haskey(classifier.histogramSpam, word)
+    for word in normMessage
+
+        if haskey(classifier.histogramSpam, word) && !haskey(alreadyUsed, word)
 
             pXCs = pXCs * classifier.histogramSpam[word] 
 
-        else
+            #println("SIEMA ENIU")
 
-            pXCs = pXCs * (1 / classifier.spamWordCount)
+        elseif !haskey(alreadyUsed, word)
+
+            pXCs = pXCs * (1 / classifier.spamMessageCount)
+            #println("PODAJ TLENU")
 
         end
 
     end
 
-    println(pXCh)
-    println(pXCs)
+    #println(pXCh)
+    #println(pXCs)
 
     result = (pCh*pXCh)/((pCs*pXCs)+(pCh*pXCh))
 
@@ -152,7 +168,7 @@ function classify(classifier::NaiveBayessClassifier, message::Vector{SubString{S
 
 end
 
-function classifierTest(classifier::NaiveBayessClassifier, testFilePath::String)
+function classifierTest(classifier::BayessClassifier, testFilePath::String)
 
     f = open(testFilePath, "r")
 
@@ -168,6 +184,9 @@ function classifierTest(classifier::NaiveBayessClassifier, testFilePath::String)
     spamClassifiedCorrectlyCount::Int64 = 0
     hamClassifiedCorrectlyCount::Int64 = 0
 
+    hamClassifiedCount::Int64 = 0
+    spamClassifiedCount::Int64 = 0
+
     for line in fileLines
 
         messageCount += 1
@@ -182,6 +201,9 @@ function classifierTest(classifier::NaiveBayessClassifier, testFilePath::String)
 
             if result == HAM
                 hamClassifiedCorrectlyCount += 1
+                hamClassifiedCount += 1
+            else
+                spamClassifiedCount += 1
             end
 
         elseif message[1] == "spam"
@@ -192,6 +214,9 @@ function classifierTest(classifier::NaiveBayessClassifier, testFilePath::String)
 
             if result == SPAM
                 spamClassifiedCorrectlyCount += 1
+                spamClassifiedCount += 1
+            else
+                hamClassifiedCount += 1
             end
 
 
@@ -200,17 +225,28 @@ function classifierTest(classifier::NaiveBayessClassifier, testFilePath::String)
     end 
 
     println("HAM MESSAGES COUNT: ", hamMessageCount)
-    println("HAM CLASSIFIED: ", hamClassifiedCorrectlyCount)
+    println("HAM CLASSIFIED: ", hamClassifiedCount)
+    println("HAM CLASSIFIED CORRECTLY: ", hamClassifiedCorrectlyCount)
     println("SPAM MESSAGES COUNT: ", spamMessageCount)
-    println("SPAM CLASSIFIED:: ", spamClassifiedCorrectlyCount)
+    println("SPAM CLASSIFIED: ", spamClassifiedCount)
+    println("SPAM CLASSIFIED CORRECTLY: ", spamClassifiedCorrectlyCount)
+
+    println("ACCURACY HAM: ", hamClassifiedCorrectlyCount/hamClassifiedCount)
+    println("ACCURACY SPAM: ", spamClassifiedCorrectlyCount/spamClassifiedCount)
+
+    TPTN = hamClassifiedCorrectlyCount + spamClassifiedCorrectlyCount
+    FPFN = (hamMessageCount - hamClassifiedCorrectlyCount) + (spamMessageCount - spamClassifiedCorrectlyCount)
+
+    println("OVERALL ACCURACY: ", TPTN/(TPTN+FPFN))
+    println("OVERALL ACCURACY: ", TPTN/(messageCount))
 
 end
 
 function main()
 
-    naiveBC::NaiveBayessClassifier = createHistograms("/home/rychu/UMSI/Lista2/SMSSpamCollection.txt")
+    naiveBC::BayessClassifier = createHistograms("/home/rychu/UMSI/Lista2/SMSSpamCollection.txt")
 
-    println(naiveBC)
+    #println(naiveBC)
     excludedChars::Array{Char} = ['-','/','\\', '#', '^', '&', '*', ';', ':', '\"', '\'', '<', '>', '-', ' ', '.', ',', '\t', '\n', '\r', '?', '%', '!', '+']
    classifierTest(naiveBC, "/home/rychu/UMSI/Lista2/SMSSpamTest.txt")
 
